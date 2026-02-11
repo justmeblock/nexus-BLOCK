@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NEXUS — Crypto Terminal</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,300&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            mono: ['JetBrains Mono', 'monospace'],
+            sans: ['DM Sans', 'sans-serif'],
+          },
+          colors: {
+            surface: {
+              '0': '#08090c',
+              '1': '#0d0f14',
+              '2': '#12151c',
+              '3': '#181c25',
+              '4': '#1e2330',
+            },
+            accent: {
+              cyan: '#00e5ff',
+              cyanDim: '#00e5ff22',
+              cyanMed: '#00e5ff44',
+            },
+            gain: '#0dff8a',
+            gainDim: '#0dff8a18',
+            loss: '#ff3b6a',
+            lossDim: '#ff3b6a18',
+            muted: '#4a5068',
+            dim: '#2a3040',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      background: #08090c;
+      color: #c8cdd8;
+      font-family: 'DM Sans', sans-serif;
+      overflow-x: hidden;
+    }
+
+    /* Noise overlay */
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      pointer-events: none;
+      opacity: 0.025;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      background-repeat: repeat;
+      background-size: 256px 256px;
+    }
+
+    /* Custom scrollbar */
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #2a3040; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #3a4058; }
+
+    /* Glow effects */
+    .glow-cyan { box-shadow: 0 0 20px #00e5ff10, 0 0 60px #00e5ff05; }
+    .glow-line { box-shadow: 0 0 8px #00e5ff30; }
+
+    /* Sparkline canvas */
+    .sparkline-canvas { image-rendering: pixelated; }
+
+    /* Depth card */
+    .depth-card {
+      background: linear-gradient(165deg, #12151c 0%, #0d0f14 100%);
+      border: 1px solid #1e233018;
+      position: relative;
+    }
+    .depth-card::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      background: linear-gradient(165deg, rgba(255,255,255,0.02) 0%, transparent 50%);
+      pointer-events: none;
+    }
+
+    /* Animated pulse for live indicator */
+    @keyframes livePulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+    .live-dot { animation: livePulse 2s ease-in-out infinite; }
+
+    /* Price flash */
+    @keyframes flashGain {
+      0% { background-color: #0dff8a18; }
+      100% { background-color: transparent; }
+    }
+    @keyframes flashLoss {
+      0% { background-color: #ff3b6a18; }
+      100% { background-color: transparent; }
+    }
+    .flash-gain { animation: flashGain 0.6s ease-out; }
+    .flash-loss { animation: flashLoss 0.6s ease-out; }
+
+    /* Hover lift */
+    .hover-lift {
+      transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.2s ease;
+    }
+    .hover-lift:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+    }
+
+    /* Watchlist item */
+    .watchlist-item {
+      transition: all 0.2s cubic-bezier(0.22, 1, 0.36, 1);
+      cursor: pointer;
+    }
+    .watchlist-item:hover {
+      background: #181c25;
+    }
+    .watchlist-item.active {
+      background: linear-gradient(90deg, #00e5ff08, transparent);
+      border-left: 2px solid #00e5ff;
+    }
+
+    /* Order book row hover */
+    .ob-row {
+      transition: background 0.15s ease;
+    }
+    .ob-row:hover {
+      background: #1e233060 !important;
+    }
+
+    /* Trade row entrance */
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateY(-8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .trade-enter {
+      animation: slideIn 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    /* Tab active */
+    .tab-active {
+      color: #00e5ff;
+      border-bottom: 2px solid #00e5ff;
+    }
+
+    /* Gradient border top */
+    .gradient-border-top {
+      position: relative;
+    }
+    .gradient-border-top::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, #00e5ff30, transparent);
+    }
+
+    /* Chart crosshair */
+    .chart-container { cursor: crosshair; }
+
+    /* Number tabular */
+    .tabular { font-variant-numeric: tabular-nums; }
+
+    /* Subtle border */
+    .border-subtle { border-color: #1e233040; }
+
+    /* Button micro interaction */
+    .btn-trade {
+      transition: all 0.15s cubic-bezier(0.22, 1, 0.36, 1);
+      position: relative;
+      overflow: hidden;
+    }
+    .btn-trade::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, rgba(255,255,255,0.08), transparent);
+      opacity: 0;
+      transition: opacity 0.15s ease;
+    }
+    .btn-trade:hover::before { opacity: 1; }
+    .btn-trade:active { transform: scale(0.97); }
+
+    /* Status bar blink */
+    @keyframes blink {
+      0%, 100% { opacity: 0.6; }
+      50% { opacity: 1; }
+    }
+    .blink { animation: blink 3s ease-in-out infinite; }
+
+    /* Volume bar animation */
+    .vol-bar {
+      transition: width 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+  </style>
+</head>
+<body class="h-screen flex flex-col overflow-hidden">
+
+  <!-- Top Navigation -->
+  <nav class="flex items-center justify-between px-5 h-12 border-b border-subtle flex-shrink-0 gradient-border-top" style="background: linear-gradient(180deg, #0d0f14, #08090c);">
+    <div class="flex items-center gap-6">
+      <!-- Logo -->
+      <div class="flex items-center gap-2">
+        <div class="w-6 h-6 rounded-md flex items-center justify-center" style="background: linear-gradient(135deg, #00e5ff, #0090ff);">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M7 1L12.5 4.25V10.75L7 14L1.5 10.75V4.25L7 1Z" stroke="white" stroke-width="1.5" fill="none"/><circle cx="7" cy="7.5" r="2" fill="white"/></svg>
+        </div>
+        <span class="font-mono font-bold text-sm tracking-wider text-white">NEXUS</span>
+        <span class="text-[10px] font-mono text-muted ml-1 mt-0.5">PRO</span>
+        <span class="text-[10px] font-mono ml-3 mt-0.5 px-2 py-0.5 rounded" style="background: linear-gradient(135deg, #00e5ff18, #0090ff18); border: 1px solid #00e5ff30; color: #00e5ff;">MR.BLOCK</span>
+      </div>
+
+      <!-- Market tabs -->
+      <div class="flex items-center gap-1 font-mono text-xs">
+        <button class="px-3 py-1.5 rounded text-accent-cyan bg-accent-cyanDim" id="tab-spot">Spot</button>
+        <button class="px-3 py-1.5 rounded text-muted hover:text-white transition-colors" id="tab-futures">Futures</button>
+        <button class="px-3 py-1.5 rounded text-muted hover:text-white transition-colors" id="tab-margin">Margin</button>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-8">
+      <!-- Portfolio Value -->
+      <div class="flex items-center gap-4">
+        <div>
+          <div class="text-[10px] font-mono text-muted uppercase tracking-wider">Portfolio</div>
+          <div class="font-mono font-semibold text-white text-sm tabular" id="portfolio-value">$128,439.52</div>
+        </div>
+        <div class="w-px h-8 bg-dim"></div>
+        <div>
+          <div class="text-[10px] font-mono text-muted uppercase tracking-wider">24h P&L</div>
+          <div class="font-mono font-semibold text-gain text-sm tabular flex items-center gap-1" id="pnl-value">
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor"><path d="M5 1L9 6H1L5 1Z"/></svg>
+            +$2,847.30 (2.26%)
+          </div>
+        </div>
+      </div>
+
+      <!-- Status -->
+      <div class="flex items-center gap-3">
+        <div class="flex items-center gap-1.5">
+          <div class="w-1.5 h-1.5 rounded-full bg-gain live-dot"></div>
+          <span class="text-[10px] font-mono text-muted">LIVE</span>
+        </div>
+        <div class="text-[10px] font-mono text-muted blink" id="server-time">00:00:00 UTC</div>
+        <div class="w-7 h-7 rounded-full bg-surface-3 flex items-center justify-center hover:bg-surface-4 transition-colors cursor-pointer">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Main Content -->
+  <div class="flex flex-1 overflow-hidden">
+
+    <!-- Left Sidebar — Watchlist -->
+    <aside class="w-64 border-r border-subtle flex-shrink-0 flex flex-col" style="background: linear-gradient(180deg, #0d0f14, #0a0c10);">
+      <!-- Search -->
+      <div class="p-3 border-b border-subtle">
+        <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-2 border border-dim">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#4a5068" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>
+          <input type="text" placeholder="Search markets..." class="bg-transparent text-xs font-mono text-white placeholder-muted outline-none w-full">
+        </div>
+      </div>
+
+      <!-- Filters -->
+      <div class="flex items-center gap-1 px-3 py-2 border-b border-subtle">
+        <button class="text-[10px] font-mono px-2 py-0.5 rounded bg-accent-cyanDim text-accent-cyan">All</button>
+        <button class="text-[10px] font-mono px-2 py-0.5 rounded text-muted hover:text-white transition-colors">Favorites</button>
+        <button class="text-[10px] font-mono px-2 py-0.5 rounded text-muted hover:text-white transition-colors">Gainers</button>
+      </div>
+
+      <!-- Column Headers -->
+      <div class="flex items-center justify-between px-4 py-1.5 text-[9px] font-mono text-muted uppercase tracking-wider">
+        <span>Pair</span>
+        <span>Price</span>
+        <span class="w-16 text-right">24h</span>
+      </div>
+
+      <!-- Watchlist Items -->
+      <div class="flex-1 overflow-y-auto" id="watchlist">
+        <!-- Populated by JS -->
+      </div>
+
+      <!-- Bottom widget -->
+      <div class="p-3 border-t border-subtle">
+        <div class="depth-card rounded-xl p-3">
+          <div class="text-[9px] font-mono text-muted uppercase tracking-wider mb-2">Fear & Greed Index</div>
+          <div class="flex items-end gap-2">
+            <span class="text-2xl font-mono font-bold text-accent-cyan">72</span>
+            <span class="text-[10px] font-mono text-gain mb-1">Greed</span>
+          </div>
+          <div class="mt-2 h-1.5 rounded-full bg-surface-4 overflow-hidden">
+            <div class="h-full rounded-full" style="width: 72%; background: linear-gradient(90deg, #ff3b6a, #ffa726, #0dff8a);"></div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Center — Chart + Trades -->
+    <main class="flex-1 flex flex-col overflow-hidden">
+      
+      <!-- Chart Header -->
+      <div class="flex items-center justify-between px-5 py-3 border-b border-subtle">
+        <div class="flex items-center gap-4">
+          <div class="flex items-center gap-2">
+            <div class="w-8 h-8 rounded-full flex items-center justify-center" style="background: linear-gradient(135deg, #f7931a, #e8750a);">
+              <span class="text-white font-bold text-xs">₿</span>
+            </div>
+            <div>
+              <div class="flex items-center gap-2">
+                <span class="font-sans font-semibold text-white text-base">BTC/USDT</span>
+                <span class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-accent-cyanDim text-accent-cyan">Spot</span>
+              </div>
+              <div class="text-[10px] font-mono text-muted">Bitcoin / Tether</div>
+            </div>
+          </div>
+          <div class="flex items-center gap-6 ml-4">
+            <div>
+              <div class="font-mono font-bold text-xl text-white tabular" id="main-price">$97,234.50</div>
+            </div>
+            <div class="grid grid-cols-4 gap-6 text-[10px] font-mono">
+              <div>
+                <div class="text-muted">24h High</div>
+                <div class="text-white tabular" id="high-24h">$98,120.00</div>
+              </div>
+              <div>
+                <div class="text-muted">24h Low</div>
+                <div class="text-white tabular" id="low-24h">$95,430.20</div>
+              </div>
+              <div>
+                <div class="text-muted">24h Vol</div>
+                <div class="text-white tabular">32,481 BTC</div>
+              </div>
+              <div>
+                <div class="text-muted">24h Change</div>
+                <div class="text-gain tabular" id="change-24h">+1.84%</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Timeframe Tabs -->
+        <div class="flex items-center gap-1">
+          <button class="text-[10px] font-mono px-2 py-1 rounded text-muted hover:text-white transition-colors">1m</button>
+          <button class="text-[10px] font-mono px-2 py-1 rounded text-muted hover:text-white transition-colors">5m</button>
+          <button class="text-[10px] font-mono px-2 py-1 rounded text-muted hover:text-white transition-colors">15m</button>
+          <button class="text-[10px] font-mono px-2 py-1 rounded bg-accent-cyanDim text-accent-cyan">1H</button>
+          <button class="text-[10px] font-mono px-2 py-1 rounded text-muted hover:text-white transition-colors">4H</button>
+          <button class="text-[10px] font-mono px-2 py-1 rounded text-muted hover:text-white transition-colors">1D</button>
+          <button class="text-[10px] font-mono px-2 py-1 rounded text-muted hover:text-white transition-colors">1W</button>
+          <div class="w-px h-4 bg-dim mx-1"></div>
+          <button class="text-[10px] font-mono px-2 py-1 rounded text-muted hover:text-white transition-colors flex items-center gap-1">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+            Indicators
+          </button>
+        </div>
+      </div>
+
+      <!-- Candlestick Chart Area -->
+      <div class="flex-1 relative chart-container" id="chart-area" style="min-height: 0;">
+        <canvas id="chart-canvas" class="w-full h-full"></canvas>
+        <!-- Crosshair Info -->
+        <div class="absolute top-3 left-5 font-mono text-[10px] text-muted" id="chart-info" style="display: none;">
+          <span id="chart-info-text"></span>
+        </div>
+        <!-- Volume label -->
+        <div class="absolute bottom-2 left-5 text-[9px] font-mono text-muted uppercase tracking-wider">Vol 24h: 32,481 BTC</div>
+      </div>
+
+      <!-- Bottom — Recent Trades -->
+      <div class="border-t border-subtle flex-shrink-0" style="height: 220px; background: linear-gradient(0deg, #0a0c10, #0d0f14);">
+        <div class="flex items-center justify-between px-5 py-2 border-b border-subtle">
+          <div class="flex items-center gap-4">
+            <span class="text-xs font-mono text-white font-medium">Recent Trades</span>
+            <div class="flex items-center gap-1">
+              <button class="text-[10px] font-mono px-2 py-0.5 rounded bg-accent-cyanDim text-accent-cyan">All</button>
+              <button class="text-[10px] font-mono px-2 py-0.5 rounded text-muted hover:text-white transition-colors">BTC</button>
+              <button class="text-[10px] font-mono px-2 py-0.5 rounded text-muted hover:text-white transition-colors">ETH</button>
+              <button class="text-[10px] font-mono px-2 py-0.5 rounded text-muted hover:text-white transition-colors">SOL</button>
+            </div>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <div class="w-1.5 h-1.5 rounded-full bg-accent-cyan live-dot"></div>
+            <span class="text-[9px] font-mono text-muted">Streaming</span>
+          </div>
+        </div>
+
+        <!-- Trades Table Header -->
+        <div class="grid px-5 py-1.5 text-[9px] font-mono text-muted uppercase tracking-wider" style="grid-template-columns: 80px 80px 1fr 100px 100px 80px;">
+          <span>Pair</span>
+          <span>Side</span>
+          <span>Price</span>
+          <span class="text-right">Amount</span>
+          <span class="text-right">Total</span>
+          <span class="text-right">Time</span>
+        </div>
+
+        <!-- Trades Body -->
+        <div class="overflow-y-auto" style="height: 155px;" id="trades-body">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+    </main>
+
+    <!-- Right Sidebar — Order Book + Trade Form -->
+    <aside class="w-80 border-l border-subtle flex-shrink-0 flex flex-col" style="background: linear-gradient(180deg, #0d0f14, #0a0c10);">
+      
+      <!-- Order Book Header -->
+      <div class="flex items-center justify-between px-4 py-2.5 border-b border-subtle">
+        <span class="text-xs font-mono text-white font-medium">Order Book</span>
+        <div class="flex items-center gap-1">
+          <button class="w-5 h-5 rounded flex items-center justify-center bg-surface-3 hover:bg-surface-4 transition-colors" title="Both">
+            <svg width="10" height="10" viewBox="0 0 10 10"><rect y="0" width="10" height="4" rx="1" fill="#ff3b6a" opacity="0.6"/><rect y="6" width="10" height="4" rx="1" fill="#0dff8a" opacity="0.6"/></svg>
+          </button>
+          <button class="w-5 h-5 rounded flex items-center justify-center hover:bg-surface-4 transition-colors" title="Bids">
+            <svg width="10" height="10" viewBox="0 0 10 10"><rect width="10" height="10" rx="1" fill="#0dff8a" opacity="0.4"/></svg>
+          </button>
+          <button class="w-5 h-5 rounded flex items-center justify-center hover:bg-surface-4 transition-colors" title="Asks">
+            <svg width="10" height="10" viewBox="0 0 10 10"><rect width="10" height="10" rx="1" fill="#ff3b6a" opacity="0.4"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Order Book Column Headers -->
+      <div class="grid grid-cols-3 px-4 py-1 text-[9px] font-mono text-muted uppercase tracking-wider">
+        <span>Price (USDT)</span>
+        <span class="text-right">Amount (BTC)</span>
+        <span class="text-right">Total</span>
+      </div>
+
+      <!-- Asks (sells) -->
+      <div class="flex-1 overflow-hidden flex flex-col" style="max-height: 200px;">
+        <div class="flex-1 overflow-hidden flex flex-col justify-end" id="asks-container">
+          <!-- Populated by JS -->
+        </div>
+      </div>
+
+      <!-- Spread -->
+      <div class="px-4 py-2 border-y border-subtle flex items-center justify-between" style="background: linear-gradient(90deg, #12151c, #0d0f14);">
+        <div class="flex items-center gap-2">
+          <span class="font-mono font-bold text-base tabular" id="spread-price" style="color: #00e5ff;">$97,234.50</span>
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="#0dff8a"><path d="M5 1L9 6H1L5 1Z"/></svg>
+        </div>
+        <div class="text-[10px] font-mono text-muted">
+          Spread: <span class="text-white" id="spread-val">$12.30 (0.01%)</span>
+        </div>
+      </div>
+
+      <!-- Bids (buys) -->
+      <div class="flex-1 overflow-hidden" style="max-height: 200px;" id="bids-container">
+        <!-- Populated by JS -->
+      </div>
+
+      <!-- Trade Form -->
+      <div class="border-t border-subtle p-4" style="background: linear-gradient(0deg, #0a0c10, #0d0f14);">
+        <div class="flex items-center gap-1 mb-3">
+          <button class="flex-1 py-1.5 rounded-lg text-xs font-mono font-semibold text-surface-0 btn-trade" style="background: linear-gradient(180deg, #15ff93, #0dca6e);" id="btn-buy">Buy</button>
+          <button class="flex-1 py-1.5 rounded-lg text-xs font-mono font-semibold text-muted bg-surface-3 btn-trade" id="btn-sell">Sell</button>
+        </div>
+        <div class="space-y-2">
+          <div>
+            <label class="text-[9px] font-mono text-muted uppercase tracking-wider">Price</label>
+            <div class="flex items-center mt-1 rounded-lg bg-surface-2 border border-dim overflow-hidden">
+              <button class="w-7 h-7 flex items-center justify-center text-muted hover:text-white transition-colors">−</button>
+              <input type="text" value="97,234.50" class="flex-1 bg-transparent text-xs font-mono text-white text-center outline-none tabular py-1.5">
+              <button class="w-7 h-7 flex items-center justify-center text-muted hover:text-white transition-colors">+</button>
+            </div>
+          </div>
+          <div>
+            <label class="text-[9px] font-mono text-muted uppercase tracking-wider">Amount</label>
+            <div class="flex items-center mt-1 rounded-lg bg-surface-2 border border-dim overflow-hidden">
+              <input type="text" value="0.00" class="flex-1 bg-transparent text-xs font-mono text-white text-center outline-none tabular py-1.5">
+              <span class="text-[10px] font-mono text-muted pr-3">BTC</span>
+            </div>
+          </div>
+          <!-- Slider -->
+          <div class="flex items-center gap-1.5 py-1">
+            <button class="text-[9px] font-mono text-muted px-1.5 py-0.5 rounded bg-surface-3 hover:bg-surface-4 transition-colors">25%</button>
+            <button class="text-[9px] font-mono text-muted px-1.5 py-0.5 rounded bg-surface-3 hover:bg-surface-4 transition-colors">50%</button>
+            <button class="text-[9px] font-mono text-muted px-1.5 py-0.5 rounded bg-surface-3 hover:bg-surface-4 transition-colors">75%</button>
+            <button class="text-[9px] font-mono text-muted px-1.5 py-0.5 rounded bg-surface-3 hover:bg-surface-4 transition-colors">100%</button>
+          </div>
+          <div class="flex items-center justify-between text-[10px] font-mono">
+            <span class="text-muted">Avail. Balance</span>
+            <span class="text-white tabular">12,450.00 USDT</span>
+          </div>
+          <button class="w-full py-2.5 rounded-xl text-xs font-mono font-bold text-surface-0 btn-trade" id="btn-submit" style="background: linear-gradient(180deg, #15ff93, #0dca6e);">
+            Buy BTC
+          </button>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Status Bar -->
+  <footer class="flex items-center justify-between px-5 h-6 border-t border-subtle text-[9px] font-mono text-muted flex-shrink-0" style="background: #08090c;">
+    <div class="flex items-center gap-4">
+      <span>NEXUS Terminal v2.4.1 — Built by <span class="text-accent-cyan">MR.BLOCK</span></span>
+      <span>|</span>
+      <span class="flex items-center gap-1">
+        <span class="w-1 h-1 rounded-full bg-gain"></span>
+        Connected to Nexus Network
+      </span>
+      <span>|</span>
+      <span>Latency: <span class="text-gain">12ms</span></span>
+    </div>
+    <div class="flex items-center gap-4">
+      <span>API Rate: 847/1200</span>
+      <span>|</span>
+      <span id="local-time">--:--:--</span>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
